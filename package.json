@@ -2,16 +2,28 @@
   "name": "incremental-json-parser",
   "version": "1.0.0",
   "type": "module",
+  "description": "A fast, incremental JSON parser for streaming data.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "source": "./src/index.ts",
+  "license": "UNLICENSED",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
     "build": "vite build",
     "test": "vitest"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5.2.2",
     "vite": "^5.1.0",
-    "vitest": "^1.0.0",
-    "@types/bun": "latest"
-  },
-  "module": "src/index.ts",
-  "private": true
+    "vite-plugin-dts": "^4.5.4",
+    "vitest": "^1.0.0"
+  }
 }
