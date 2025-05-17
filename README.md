@@ -7,8 +7,8 @@ streaming manner, such as OpenAI's structured output.
 
 ## Usage
 
-```javascript
-import { incrementalJsonParser } from './incrementalJsonParser.js';
+```typescript
+import { incrementalJsonParser } from './dist/incremental-json-parser.es.js';
 import { Readable } from 'stream';
 
 async function main() {
@@ -29,6 +29,21 @@ async function main() {
 }
 
 main();
+```
+
+## Development
+
+Install dependencies and run tests:
+
+```bash
+npm install
+npm test
+```
+
+Build the library:
+
+```bash
+npm run build
 ```
 
 The parser reads from an object implementing the same interface as
