@@ -45,7 +45,7 @@ class ParserContext {
   }
 }
 
-class IncrementalParser {
+export class IncrementalParser {
   stack: ParserContext[] = [];
   root: any = undefined;
   buffer = "";
