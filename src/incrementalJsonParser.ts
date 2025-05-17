@@ -3,9 +3,6 @@
 // and returns an async generator yielding immutable snapshots of the parsed
 // JSON structure.
 
-export interface IncrementalReader {
-  read(): Promise<ReadableStreamReadResult<Uint8Array>>;
-}
 
 function isWhitespace(ch: string): boolean {
   return ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t';
@@ -77,7 +74,7 @@ class IncrementalParser {
             break;
           }
           if (ch === '[') {
-            const arr = [];
+            const arr:any[] = [];
             this._pushValue(arr);
             this.stack.push(new ParserContext('array', arr));
             i++;
@@ -215,6 +212,9 @@ class IncrementalParser {
       if (ctx.state !== 'expectValue') {
         throw new Error('Unexpected value in object');
       }
+      if (ctx.key === undefined) {
+        throw new Error('Object key is undefined');
+      }
       ctx.value[ctx.key] = value;
       ctx.key = undefined;
       ctx.state = 'expectCommaOrEnd';
@@ -275,10 +275,16 @@ class IncrementalParser {
     return list;
   }
 }
-
-export async function* incrementalJsonParser(
-  reader: IncrementalReader
-): AsyncGenerator<any> {
+type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object
+    ? DeepPartial<T[P]>
+    : T[P] extends Array<infer U>
+    ? Array<DeepPartial<U>>
+    : T[P];
+};
+export async function* incrementalJsonParser<T extends any>(
+  reader: ReadableStreamDefaultReader<Uint8Array | string>,
+): AsyncGenerator<DeepPartial<T>, void, unknown> {
   const decoder = new TextDecoder();
   const parser = new IncrementalParser();
   while (true) {
@@ -293,7 +299,8 @@ export async function* incrementalJsonParser(
       }
       break;
     }
-    parser.feed(decoder.decode(value, { stream: true }));
+    const chunk = value instanceof Uint8Array ? decoder.decode(value) : value;
+    parser.feed(chunk);
     const updates = parser.collectUpdates();
     for (const u of updates) {
       if (u !== undefined) {

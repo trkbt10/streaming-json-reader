@@ -9,6 +9,9 @@
   "devDependencies": {
     "typescript": "^5.2.2",
     "vite": "^5.1.0",
-    "vitest": "^1.0.0"
-  }
+    "vitest": "^1.0.0",
+    "@types/bun": "latest"
+  },
+  "module": "src/index.ts",
+  "private": true
 }
