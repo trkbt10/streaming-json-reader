@@ -26,6 +26,7 @@ export class JSONPointerParser<T = any> {
   private lastReturnedValues: any[] = [];
   private structuralContext: StructuralContext = {
     closedStructures: new Set(),
+    closedPaths: new Set(),
     stackDepth: 0
   };
   private options: JSONPointerOptions;

@@ -3,6 +3,7 @@
  */
 export interface StructuralContext {
   closedStructures: Set<any>;
+  closedPaths: Set<string>;
   stackDepth: number;
 }
 

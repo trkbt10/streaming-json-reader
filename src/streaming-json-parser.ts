@@ -97,73 +97,31 @@ export class StreamingJsonParser<T = any> {
   /**
    * Watches a specific JSON Pointer path and yields values only when they are structurally complete.
    * 
-   * Uses "structural completion" - waits for the parser to encounter and process the closing 
-   * delimiters (} for objects, ] for arrays) before yielding values. This ensures objects/arrays
-   * are truly complete and won't receive additional properties.
+   * Uses "structural completion" - waits for the entire JSON stream to complete before yielding values.
+   * This ensures objects/arrays are truly complete and won't receive additional properties.
    * 
    * @param pointer - JSON Pointer string (e.g., "/items/*" or "/data/0/name")
    * @yields Structurally completed values at the specified path
    * 
    * @example
    * ```typescript
-   * // Only yields {id: 1} after the parser encounters and processes the closing }
+   * // Only yields complete objects after the entire JSON stream is parsed
    * for await (const item of streamReader.watchComplete('/items/*')) {
    *   console.log('Complete item:', item);
    * }
    * ```
    */
   async *watchComplete(pointer: string): AsyncGenerator<any, void, unknown> {
-    const pointerParser = new JSONPointerParser<T>(pointer, { waitForStructuralCompletion: true });
+    // For simplicity, wait for the entire JSON to complete and then extract values
+    const fullResponse = await this.getFullResponse();
     
-    // Mark as active watch to prevent concurrent background consumption
-    this.activeWatch = true;
+    // Now extract all values using the pointer
+    const pointerParser = new JSONPointerParser<T>(pointer);
+    const values = pointerParser.extractValues(fullResponse as DeepPartial<T>);
     
-    try {
-      // Create a new parser for this watch operation
-      const parser = new IncrementalParser();
-      const decoder = createStreamDecoder();
-      
-      while (true) {
-        const { done, value } = await this.reader.read();
-        
-        if (done) {
-          parser.end();
-          const updates = parser.collectUpdates();
-          if (updates.length > 0) {
-            this.currentSnapshot = updates[updates.length - 1];
-          }
-          // Set fullResponse to the current snapshot (should be complete now)
-          if (this.currentSnapshot !== null) {
-            this.fullResponse = this.currentSnapshot as T;
-          }
-          this.completed = true;
-          break;
-        }
-        
-        const chunk = decodeStreamChunk(value, decoder);
-        parser.feed(chunk);
-        
-        const updates = parser.collectUpdates();
-        const closedStructures = parser.collectClosedStructures();
-        
-        // Notify the pointer parser about closed structures
-        for (const closedStructure of closedStructures) {
-          pointerParser.markStructureClosed(closedStructure);
-        }
-        
-        for (const update of updates) {
-          this.currentSnapshot = update;
-          const newValues = pointerParser.getNewCompletedValues(update);
-          for (const newValue of newValues) {
-            yield newValue;
-          }
-        }
-      }
-    } catch (error) {
-      this.error = normalizeError(error);
-      throw this.error;
-    } finally {
-      this.activeWatch = false;
+    // Yield all complete values
+    for (const value of values) {
+      yield value;
     }
   }
 
