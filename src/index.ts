@@ -13,3 +13,10 @@ export {
   extractJSONFromSSELine,
   type SSEMessage,
 } from "./utils/sse";
+
+// SSE JSON stream parser with configurable content extraction
+export {
+  createSSEJsonStreamingParser,
+  SSEJsonExtractors,
+  type SSEJsonExtractorOptions,
+} from "./streaming-sse-json-parser";

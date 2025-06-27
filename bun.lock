@@ -3,6 +3,9 @@
   "workspaces": {
     "": {
       "name": "incremental-json-parser",
+      "dependencies": {
+        "openai": "^5.8.1",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.8.3",
@@ -274,6 +277,8 @@
     "muggle-string": ["muggle-string@0.4.1", "", {}, "sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ=="],
 
     "nanoid": ["nanoid@3.3.11", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w=="],
+
+    "openai": ["openai@5.8.1", "", { "peerDependencies": { "ws": "^8.18.0", "zod": "^3.23.8" }, "optionalPeers": ["ws", "zod"], "bin": { "openai": "bin/cli" } }, "sha512-+qp4vQjJs43pzMSb6quTYslOhVE0c0c7j4YMoEks83BnusG23UrsWn3Hey6/8mwYadY05KipLvbp+PTO4jxO9w=="],
 
     "path-browserify": ["path-browserify@1.0.1", "", {}, "sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g=="],
 
