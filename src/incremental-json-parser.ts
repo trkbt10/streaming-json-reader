@@ -31,6 +31,7 @@ export class IncrementalParser {
   token = "";
   escape = false;
   updates: any[] = [];
+  closedStructures: any[] = [];
 
   feed(chunk: string): void {
     this.buffer += chunk;
@@ -211,7 +212,9 @@ export class IncrementalParser {
     }
     const ctx = this.stack[this.stack.length - 1];
     if (ctx.type === "array" && ch === "]") {
+      const closedStructure = ctx.value;
       this.stack.pop();
+      this.closedStructures.push(closedStructure);
       this.updates.push(this._cloneRoot());
       return;
     }
@@ -219,7 +222,9 @@ export class IncrementalParser {
       if (ctx.state === "expectColon" || ctx.state === "expectValue") {
         throw createParseError("Unexpected closing brace");
       }
+      const closedStructure = ctx.value;
       this.stack.pop();
+      this.closedStructures.push(closedStructure);
       this.updates.push(this._cloneRoot());
       return;
     }
@@ -255,6 +260,12 @@ export class IncrementalParser {
   collectUpdates(): any[] {
     const list = this.updates;
     this.updates = [];
+    return list;
+  }
+
+  collectClosedStructures(): any[] {
+    const list = this.closedStructures;
+    this.closedStructures = [];
     return list;
   }
 }

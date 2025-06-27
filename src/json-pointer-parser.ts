@@ -1,7 +1,20 @@
 import type { DeepPartial } from './types';
 import { parseJsonPointer } from './utils/json-pointer';
-import { isComplete } from './utils/completeness-checker';
+import { isComplete, isStructurallyComplete, type StructuralContext } from './utils/completeness-checker';
 import { createJsonPointerError } from './utils/error-utils';
+
+/**
+ * Options for controlling JSONPointerParser behavior
+ */
+export interface JSONPointerOptions {
+  /**
+   * Whether to wait for structural completion before yielding values.
+   * - true: Only yield objects/arrays when they are structurally closed (} or ])
+   * - false: Yield objects/arrays as soon as they have no undefined nested values (default behavior)
+   * @default false
+   */
+  waitForStructuralCompletion?: boolean;
+}
 
 /**
  * Parses JSON Pointers (RFC 6901) and extracts values from JSON objects.
@@ -11,10 +24,19 @@ export class JSONPointerParser<T = any> {
   private pointer: string;
   private parsedPath: string[];
   private lastReturnedValues: any[] = [];
+  private structuralContext: StructuralContext = {
+    closedStructures: new Set(),
+    stackDepth: 0
+  };
+  private options: JSONPointerOptions;
 
-  constructor(pointer: string) {
+  constructor(pointer: string, options: JSONPointerOptions = {}) {
     this.pointer = pointer;
     this.parsedPath = this.parsePointer(pointer);
+    this.options = {
+      waitForStructuralCompletion: false,
+      ...options
+    };
   }
 
   /**
@@ -81,6 +103,16 @@ export class JSONPointerParser<T = any> {
   }
 
   /**
+   * Updates the structural context when structures are closed
+   * @param closedStructure - The structure that was closed
+   */
+  markStructureClosed(closedStructure: any): void {
+    if (closedStructure && typeof closedStructure === 'object') {
+      this.structuralContext.closedStructures.add(closedStructure);
+    }
+  }
+
+  /**
    * Gets new completed values since last check
    * @param data - Current data state
    * @returns Array of newly completed values
@@ -90,7 +122,13 @@ export class JSONPointerParser<T = any> {
     
     // Get all currently complete values
     const allValues = this.extractValues(data);
-    const completeValues = allValues.filter(v => isComplete(v));
+    
+    // Apply completion strategy based on options
+    const completeValues = this.options.waitForStructuralCompletion
+      // Structural completion: Wait for parser to encounter closing delimiters (} or ])
+      ? allValues.filter(v => isComplete(v) && isStructurallyComplete(v, this.structuralContext))
+      // Immediate completion: Yield as soon as no undefined values exist
+      : allValues.filter(v => isComplete(v));
     
     // Find truly new values (not previously returned)
     const newValues: any[] = [];

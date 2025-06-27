@@ -107,14 +107,14 @@ describe("JSONPointerParser", () => {
   });
 
   describe("getNewCompletedValues", () => {
-    it("should track newly completed array items", () => {
+    it("should track newly completed array items (default behavior)", () => {
       const parser = new JSONPointerParser("/items/*");
 
       // First update: one complete item
       const data1 = {
         items: [
           { id: 1, name: "Item 1" },
-          { id: 2 }, // Incomplete - missing required fields
+          { id: 2 }, // Complete because all present fields have values
         ],
       };
 
@@ -142,7 +142,34 @@ describe("JSONPointerParser", () => {
       expect(values3).toHaveLength(0);
     });
 
-    it("should handle deeply nested completion", () => {
+    it("should track newly completed array items with structural completion option", () => {
+      const parser = new JSONPointerParser("/items/*", { waitForStructuralCompletion: true });
+
+      // First update: one complete item
+      const data1 = {
+        items: [
+          { id: 1, name: "Item 1" },
+          { id: 2 }, // Incomplete - missing required fields
+        ],
+      };
+
+      // Without marking structures as closed, should return empty
+      const values1 = parser.getNewCompletedValues(data1);
+      expect(values1).toHaveLength(0);
+
+      // Mark structures as closed to indicate they are structurally complete
+      parser.markStructureClosed(data1.items[0]);
+      parser.markStructureClosed(data1.items[1]);
+      parser.markStructureClosed(data1.items);
+      parser.markStructureClosed(data1);
+
+      const values2 = parser.getNewCompletedValues(data1);
+      expect(values2).toHaveLength(2);
+      expect(values2[0]).toEqual({ id: 1, name: "Item 1" });
+      expect(values2[1]).toEqual({ id: 2 });
+    });
+
+    it("should handle deeply nested completion (default behavior)", () => {
       const parser = new JSONPointerParser("/data/users/*");
 
       const data1 = {
@@ -172,6 +199,37 @@ describe("JSONPointerParser", () => {
       const values2 = parser.getNewCompletedValues(data2);
       expect(values2).toHaveLength(1);
       expect(values2[0]).toEqual({ profile: { name: "Charlie", age: 35 } });
+    });
+
+    it("should handle deeply nested completion with structural completion", () => {
+      const parser = new JSONPointerParser("/data/users/*", { waitForStructuralCompletion: true });
+
+      const data1 = {
+        data: {
+          users: [
+            { profile: { name: "Alice", age: 30 } },
+            { profile: { name: "Bob" } },
+          ],
+        },
+      };
+
+      // Without marking structures as closed, should return empty
+      const values1 = parser.getNewCompletedValues(data1);
+      expect(values1).toHaveLength(0);
+
+      // Mark all nested structures as closed
+      parser.markStructureClosed(data1.data.users[0].profile);
+      parser.markStructureClosed(data1.data.users[0]);
+      parser.markStructureClosed(data1.data.users[1].profile);
+      parser.markStructureClosed(data1.data.users[1]);
+      parser.markStructureClosed(data1.data.users);
+      parser.markStructureClosed(data1.data);
+      parser.markStructureClosed(data1);
+
+      const values2 = parser.getNewCompletedValues(data1);
+      expect(values2).toHaveLength(2);
+      expect(values2[0]).toEqual({ profile: { name: "Alice", age: 30 } });
+      expect(values2[1]).toEqual({ profile: { name: "Bob" } });
     });
   });
 

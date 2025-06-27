@@ -1,6 +1,6 @@
 import { IncrementalParser, incrementalJsonParser } from './incremental-json-parser';
 import type { DeepPartial } from './types';
-import { JSONPointerParser } from './json-pointer-parser';
+import { JSONPointerParser, type JSONPointerOptions } from './json-pointer-parser';
 import { decodeStreamChunk, createStreamDecoder } from './utils/text-decoder';
 import { normalizeError } from './utils/error-utils';
 
@@ -24,18 +24,23 @@ export class StreamingJsonParser<T = any> {
   /**
    * Watches a specific JSON Pointer path and yields values as they become complete.
    * 
+   * Uses "immediate completion" - yields objects/arrays as soon as they have no undefined values,
+   * even if the parser hasn't encountered the closing delimiters (} or ]) yet.
+   * 
    * @param pointer - JSON Pointer string (e.g., "/items/*" or "/data/0/name")
+   * @param options - Options for controlling completion behavior
    * @yields Completed values at the specified path
    * 
    * @example
    * ```typescript
+   * // Yields {id: 1} as soon as the value is set, before } is parsed
    * for await (const item of streamReader.watch('/items/*')) {
    *   console.log('New item:', item);
    * }
    * ```
    */
-  async *watch(pointer: string): AsyncGenerator<any, void, unknown> {
-    const pointerParser = new JSONPointerParser<T>(pointer);
+  async *watch(pointer: string, options?: JSONPointerOptions): AsyncGenerator<any, void, unknown> {
+    const pointerParser = new JSONPointerParser<T>(pointer, options);
     
     // Mark as active watch to prevent concurrent background consumption
     this.activeWatch = true;
@@ -66,6 +71,86 @@ export class StreamingJsonParser<T = any> {
         parser.feed(chunk);
         
         const updates = parser.collectUpdates();
+        const closedStructures = parser.collectClosedStructures();
+        
+        // Notify the pointer parser about closed structures
+        for (const closedStructure of closedStructures) {
+          pointerParser.markStructureClosed(closedStructure);
+        }
+        
+        for (const update of updates) {
+          this.currentSnapshot = update;
+          const newValues = pointerParser.getNewCompletedValues(update);
+          for (const newValue of newValues) {
+            yield newValue;
+          }
+        }
+      }
+    } catch (error) {
+      this.error = normalizeError(error);
+      throw this.error;
+    } finally {
+      this.activeWatch = false;
+    }
+  }
+
+  /**
+   * Watches a specific JSON Pointer path and yields values only when they are structurally complete.
+   * 
+   * Uses "structural completion" - waits for the parser to encounter and process the closing 
+   * delimiters (} for objects, ] for arrays) before yielding values. This ensures objects/arrays
+   * are truly complete and won't receive additional properties.
+   * 
+   * @param pointer - JSON Pointer string (e.g., "/items/*" or "/data/0/name")
+   * @yields Structurally completed values at the specified path
+   * 
+   * @example
+   * ```typescript
+   * // Only yields {id: 1} after the parser encounters and processes the closing }
+   * for await (const item of streamReader.watchComplete('/items/*')) {
+   *   console.log('Complete item:', item);
+   * }
+   * ```
+   */
+  async *watchComplete(pointer: string): AsyncGenerator<any, void, unknown> {
+    const pointerParser = new JSONPointerParser<T>(pointer, { waitForStructuralCompletion: true });
+    
+    // Mark as active watch to prevent concurrent background consumption
+    this.activeWatch = true;
+    
+    try {
+      // Create a new parser for this watch operation
+      const parser = new IncrementalParser();
+      const decoder = createStreamDecoder();
+      
+      while (true) {
+        const { done, value } = await this.reader.read();
+        
+        if (done) {
+          parser.end();
+          const updates = parser.collectUpdates();
+          if (updates.length > 0) {
+            this.currentSnapshot = updates[updates.length - 1];
+          }
+          // Set fullResponse to the current snapshot (should be complete now)
+          if (this.currentSnapshot !== null) {
+            this.fullResponse = this.currentSnapshot as T;
+          }
+          this.completed = true;
+          break;
+        }
+        
+        const chunk = decodeStreamChunk(value, decoder);
+        parser.feed(chunk);
+        
+        const updates = parser.collectUpdates();
+        const closedStructures = parser.collectClosedStructures();
+        
+        // Notify the pointer parser about closed structures
+        for (const closedStructure of closedStructures) {
+          pointerParser.markStructureClosed(closedStructure);
+        }
+        
         for (const update of updates) {
           this.currentSnapshot = update;
           const newValues = pointerParser.getNewCompletedValues(update);
@@ -85,15 +170,15 @@ export class StreamingJsonParser<T = any> {
   /**
    * Alias for watch() method - monitors a specific path for changes
    */
-  observe(pointer: string): AsyncGenerator<any, void, unknown> {
-    return this.watch(pointer);
+  observe(pointer: string, options?: JSONPointerOptions): AsyncGenerator<any, void, unknown> {
+    return this.watch(pointer, options);
   }
 
   /**
    * Alias for watch() method - selects values from a specific path
    */
-  select(pointer: string): AsyncGenerator<any, void, unknown> {
-    return this.watch(pointer);
+  select(pointer: string, options?: JSONPointerOptions): AsyncGenerator<any, void, unknown> {
+    return this.watch(pointer, options);
   }
 
   /**
