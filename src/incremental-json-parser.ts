@@ -3,33 +3,11 @@
 // and returns an async generator yielding immutable snapshots of the parsed
 // JSON structure.
 
-const isWhitespace = (ch: string): boolean => {
-  return ch === " " || ch === "\n" || ch === "\r" || ch === "\t";
-};
-
-const isDigit = (ch: string): boolean => {
-  return ch >= "0" && ch <= "9";
-};
-
-const isNumberChar = (ch: string): boolean => {
-  return (
-    isDigit(ch) ||
-    ch === "-" ||
-    ch === "+" ||
-    ch === "e" ||
-    ch === "E" ||
-    ch === "."
-  );
-};
-
-type ContextType = "object" | "array";
-type ContextState =
-  | "expectKeyOrEnd"
-  | "expectKey"
-  | "expectColon"
-  | "expectValue"
-  | "expectValueOrEnd"
-  | "expectCommaOrEnd";
+import type { ContextType, ContextState, DeepPartial, ParserState } from './types';
+import { isWhitespace, isDigit, isNumberChar } from './utils/character-utils';
+import { decodeStreamChunk, createStreamDecoder } from './utils/text-decoder';
+import { deepClone } from './utils/deep-clone';
+import { createParseError } from './utils/error-utils';
 
 class ParserContext {
   type: ContextType;
@@ -49,7 +27,7 @@ export class IncrementalParser {
   stack: ParserContext[] = [];
   root: any = undefined;
   buffer = "";
-  state: "default" | "string" | "number" | "literal" = "default";
+  state: ParserState = "default";
   token = "";
   escape = false;
   updates: any[] = [];
@@ -112,7 +90,7 @@ export class IncrementalParser {
             i++;
             break;
           }
-          throw new Error("Unexpected token " + ch);
+          throw createParseError("Unexpected token " + ch);
         case "string":
           if (this.escape) {
             this.token += ch;
@@ -175,7 +153,7 @@ export class IncrementalParser {
           ) {
             break; // still pending
           }
-          throw new Error("Unexpected token " + this.token);
+          throw createParseError("Unexpected token " + this.token);
       }
     }
     this.buffer = this.buffer.slice(i);
@@ -187,10 +165,10 @@ export class IncrementalParser {
       this.state === "number" ||
       this.state === "literal"
     ) {
-      throw new Error("Unexpected end of JSON input");
+      throw createParseError("Unexpected end of JSON input");
     }
     if (this.stack.length !== 0) {
-      throw new Error("Unexpected end of JSON input");
+      throw createParseError("Unexpected end of JSON input");
     }
     return this.root;
   }
@@ -204,7 +182,7 @@ export class IncrementalParser {
     const ctx = this.stack[this.stack.length - 1];
     if (ctx.type === "array") {
       if (ctx.state !== "expectValue" && ctx.state !== "expectValueOrEnd") {
-        throw new Error("Unexpected value in array");
+        throw createParseError("Unexpected value in array");
       }
       ctx.value.push(value);
       ctx.state = "expectCommaOrEnd";
@@ -215,10 +193,10 @@ export class IncrementalParser {
         return;
       }
       if (ctx.state !== "expectValue") {
-        throw new Error("Unexpected value in object");
+        throw createParseError("Unexpected value in object");
       }
       if (ctx.key === undefined) {
-        throw new Error("Object key is undefined");
+        throw createParseError("Object key is undefined");
       }
       ctx.value[ctx.key] = value;
       ctx.key = undefined;
@@ -229,7 +207,7 @@ export class IncrementalParser {
 
   _closeStructure(ch: string): void {
     if (this.stack.length === 0) {
-      throw new Error("Unexpected closing bracket");
+      throw createParseError("Unexpected closing bracket");
     }
     const ctx = this.stack[this.stack.length - 1];
     if (ctx.type === "array" && ch === "]") {
@@ -239,41 +217,39 @@ export class IncrementalParser {
     }
     if (ctx.type === "object" && ch === "}") {
       if (ctx.state === "expectColon" || ctx.state === "expectValue") {
-        throw new Error("Unexpected closing brace");
+        throw createParseError("Unexpected closing brace");
       }
       this.stack.pop();
       this.updates.push(this._cloneRoot());
       return;
     }
-    throw new Error("Mismatched closing bracket");
+    throw createParseError("Mismatched closing bracket");
   }
 
   _comma(): void {
     if (this.stack.length === 0) {
-      throw new Error("Unexpected comma");
+      throw createParseError("Unexpected comma");
     }
     const ctx = this.stack[this.stack.length - 1];
     if (ctx.state !== "expectCommaOrEnd") {
-      throw new Error("Unexpected comma");
+      throw createParseError("Unexpected comma");
     }
     ctx.state = ctx.type === "object" ? "expectKey" : "expectValue";
   }
 
   _colon(): void {
     if (this.stack.length === 0) {
-      throw new Error("Unexpected colon");
+      throw createParseError("Unexpected colon");
     }
     const ctx = this.stack[this.stack.length - 1];
     if (ctx.type !== "object" || ctx.state !== "expectColon") {
-      throw new Error("Unexpected colon");
+      throw createParseError("Unexpected colon");
     }
     ctx.state = "expectValue";
   }
 
   _cloneRoot(): any {
-    return this.root === undefined
-      ? undefined
-      : JSON.parse(JSON.stringify(this.root));
+    return deepClone(this.root);
   }
 
   collectUpdates(): any[] {
@@ -282,17 +258,10 @@ export class IncrementalParser {
     return list;
   }
 }
-type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends object
-    ? DeepPartial<T[P]>
-    : T[P] extends Array<infer U>
-    ? Array<DeepPartial<U>>
-    : T[P];
-};
 export async function* incrementalJsonParser<T extends any>(
   reader: ReadableStreamDefaultReader<Uint8Array | string>
 ): AsyncGenerator<DeepPartial<T>, void, unknown> {
-  const decoder = new TextDecoder();
+  const decoder = createStreamDecoder();
   const parser = new IncrementalParser();
   while (true) {
     const { done, value } = await reader.read();
@@ -306,7 +275,7 @@ export async function* incrementalJsonParser<T extends any>(
       }
       break;
     }
-    const chunk = value instanceof Uint8Array ? decoder.decode(value) : value;
+    const chunk = decodeStreamChunk(value, decoder);
     parser.feed(chunk);
     const updates = parser.collectUpdates();
     for (const u of updates) {

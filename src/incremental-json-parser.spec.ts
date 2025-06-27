@@ -1,34 +1,20 @@
-import {incrementalJsonParser} from './incrementalJsonParser';
-const createJSONReadableStreamDefaultReader = (json: string, chunkSize = 32): 
-ReadableStreamDefaultReader<string> => {
-  const stream = new ReadableStream<string>({
-    start(controller) {
-      let position = 0;
-      while (position < json.length) {
-        const chunk = json.slice(position, position + chunkSize);
-        controller.enqueue(chunk);
-        position += chunkSize;
-      }
-      controller.close();
-    }
-  });
-  return stream.getReader();
-}
+import { describe, it, expect } from "vitest";
+import { incrementalJsonParser } from "./incremental-json-parser";
+import { createJSONReadableStreamDefaultReader } from "./utils/test-helpers/create-json-readable-stream-default-reader";
 
-describe('incrementalJsonParser', () => {
-  it ('should parse a simple JSON object', async () => {
-  const json = '{"key": "value"}';
-  const readable = createJSONReadableStreamDefaultReader(json);
+describe("incrementalJsonParser", () => {
+  it("should parse a simple JSON object", async () => {
+    const json = '{"key": "value"}';
+    const readable = createJSONReadableStreamDefaultReader(json);
     const parser = incrementalJsonParser(readable);
-    let dest :any = null;
+    let dest: any = null;
     for await (const update of parser) {
       dest = update;
     }
     expect(dest).toEqual(JSON.parse(json));
     expect(parser).toBeDefined();
-
-  })
-  it('parses streaming json and yields snapshots', async () => {
+  });
+  it("parses streaming json and yields snapshots", async () => {
     const json = '{"a":1,"b":[{"c":2},3]}';
     const reader = createJSONReadableStreamDefaultReader(json, 5);
 
@@ -43,7 +29,7 @@ describe('incrementalJsonParser', () => {
       expect(results[results.length - 2]).not.toBe(results[results.length - 1]);
     }
   });
-  it ('deeply nested json', async () => {
+  it("deeply nested json", async () => {
     const json = JSON.stringify({
       author: {
         name: "宮沢賢治",
@@ -52,36 +38,36 @@ describe('incrementalJsonParser', () => {
           {
             title: "銀河鉄道の夜",
             year: 1927,
-            description: "銀河を旅する少年の物語"
+            description: "銀河を旅する少年の物語",
           },
           {
             title: "注文の多い料理店",
-            year: 1924,   
-            description: "不思議な料理店での出来事"
+            year: 1924,
+            description: "不思議な料理店での出来事",
           },
           {
             title: "風の又三郎",
             year: 1931,
-            description: "風とともに生きる少年の物語"
-          }
+            description: "風とともに生きる少年の物語",
+          },
         ],
         birth: {
           year: 1896,
           month: 8,
-          day: 27
+          day: 27,
         },
       },
       content: {
-        title: 'ポラーノの広場',
+        title: "ポラーノの広場",
         year: 1934,
-        description: 'ポラーノの広場での出来事',
+        description: "ポラーノの広場での出来事",
         data: [
           `ポラーノの広場`,
-          'そのころわたくしは、モリーオ市の博物局に勤めて居りました。',
-          '十八等官でしたから役所の中でも、ずうっと下の方でしたし、',
-        ]
-      }
-    })
+          "そのころわたくしは、モリーオ市の博物局に勤めて居りました。",
+          "十八等官でしたから役所の中でも、ずうっと下の方でしたし、",
+        ],
+      },
+    });
     const reader = createJSONReadableStreamDefaultReader(json, 5);
 
     const results: any[] = [];
@@ -90,6 +76,5 @@ describe('incrementalJsonParser', () => {
     }
     expect(results.length > 1).toBe(true);
     expect(results[results.length - 1]).toEqual(JSON.parse(json));
-  }
-  )
-})
+  });
+});

@@ -1,13 +1,8 @@
 # Incremental JSON Parser
 
-This repository provides an example implementation of a streaming JSON parser
-that can consume partial JSON data and yield immutable snapshots of the object
-as more data arrives. It is useful when working with APIs that return JSON in a
-streaming manner, such as OpenAI's structured output.
+A streaming JSON parser that lets you process large JSON responses without waiting for completion. Parse data as it arrives and extract specific values using JSON Pointers.
 
 ## Installation
-
-Install the package directly from GitHub:
 
 ```bash
 npm install github:trkbt10/incremental-json-parser
@@ -15,104 +10,230 @@ npm install github:trkbt10/incremental-json-parser
 
 ## Usage
 
-```typescript
-import { incrementalJsonParser } from "@trkbt10/incremental-json-parser";
-import { Readable } from "stream";
-
-async function main() {
-  const data = '{"foo":1,"bar":[{"baz":2},3]}';
-  const chunks = [data.slice(0, 5), data.slice(5, 10), data.slice(10)];
-  const stream = Readable.from(chunks.map((c) => Buffer.from(c)));
-  const reader = stream[Symbol.asyncIterator]();
-
-  for await (const obj of incrementalJsonParser({
-    async read() {
-      const r = await reader.next();
-      if (r.done) return { done: true };
-      return { done: false, value: r.value };
-    },
-  })) {
-    console.log(obj);
-  }
-}
-
-main();
-```
-
-## OpenAI Streaming Example
-
-The following example shows how to parse an incremental JSON response
-from the OpenAI API using the library:
+### Basic Incremental Parsing
 
 ```typescript
-import { incrementalJsonParser } from "@trkbt10/incremental-json-parser";
-import type { JSONSchemaType } from "ajv";
-import type OpenAI from "openai";
+import { incrementalJsonParser } from "incremental-json-parser";
 
-export async function* structuredRequestStream<T extends object>(
-  client: OpenAI,
-  request: OpenAI.Chat.ChatCompletionCreateParamsStreaming,
-  structure: {
-    name: string;
-    description?: string;
-    schema: JSONSchemaType<T>;
-  },
-) {
-  const res = await client.chat.completions.create({
-    ...request,
-    stream: true,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: structure.name,
-        description: structure.description,
-        schema: structure.schema,
-      },
-    },
-    messages: request.messages,
-  });
+// Parse JSON data as it arrives
+const response = await fetch("https://api.example.com/data");
+const reader = response.body!.getReader();
 
-  const decoder = new TextDecoder("utf-8");
-  // Reader for OpenAI's streaming response
-  const chunkReader = res.toReadableStream().getReader();
-  // Reader that feeds incremental JSON data to the parser
-  const jsonReader = new ReadableStream({
-    async pull(controller) {
-      const { done, value } = await chunkReader.read();
-      if (done) {
-        controller.close();
-        return;
-      }
-      const text = decoder.decode(value);
-      const parsed = JSON.parse(text);
-      if (parsed.choices) {
-        const firstChoice = parsed.choices[0];
-        controller.enqueue(firstChoice.delta?.content ?? "");
-      }
-    },
-  });
+for await (const partialData of incrementalJsonParser(reader)) {
+  console.log("Current state:", partialData);
+}
+```
 
-  const parser = incrementalJsonParser(jsonReader.getReader());
-  for await (const chunk of parser) {
-    yield chunk;
+### Streaming with JSON Pointers
+
+```typescript
+import { StreamingJsonParser } from "incremental-json-parser";
+
+const response = await fetch("https://api.example.com/users");
+const reader = response.body!.getReader();
+const parser = new StreamingJsonParser(reader);
+
+// Extract specific data using JSON Pointers
+for await (const user of parser.watch("/users/*")) {
+  console.log("New user:", user);
+}
+
+// Get complete response when finished
+const fullData = await parser.getFullResponse();
+```
+
+## API Reference
+
+### `incrementalJsonParser(reader)`
+
+Core function that yields partial JSON objects as they are parsed.
+
+**Parameters:**
+- `reader: ReadableStreamDefaultReader<string | Uint8Array>` - Stream reader
+
+**Returns:** `AsyncGenerator<DeepPartial<T>, void, unknown>`
+
+### `StreamingJsonParser<T>`
+
+Class for advanced streaming with JSON Pointer support.
+
+**Constructor:**
+```typescript
+new StreamingJsonParser<T>(reader: ReadableStreamDefaultReader<string | Uint8Array>)
+```
+
+**Methods:**
+
+#### `watch(pointer: string)`
+Monitor a JSON Pointer path and yield values as they complete.
+
+```typescript
+// Watch array elements
+for await (const item of parser.watch("/items/*")) {
+  console.log("Item:", item);
+}
+
+// Watch nested properties
+for await (const name of parser.watch("/users/*/name")) {
+  console.log("Name:", name);
+}
+```
+
+#### `observe(pointer: string)`
+Alias for `watch()`. Same functionality.
+
+#### `select(pointer: string)`
+Alias for `watch()`. Same functionality.
+
+#### `readPartial()`
+Get all incremental updates as they arrive.
+
+```typescript
+for await (const partial of parser.readPartial()) {
+  console.log("Current state:", partial);
+}
+```
+
+#### `getFullResponse()`
+Get the complete response after streaming finishes.
+
+```typescript
+const fullData = await parser.getFullResponse();
+```
+
+#### `getCurrentSnapshot()`
+Get the current partial state.
+
+```typescript
+const current = parser.getCurrentSnapshot();
+```
+
+## JSON Pointer Syntax
+
+Supports RFC 6901 JSON Pointer syntax:
+
+```typescript
+""           // Root object
+"/users"     // Property 'users'
+"/users/0"   // First element in users array
+"/users/*"   // All elements in users array (wildcard)
+"/users/*/name"  // Name property of all users
+"/data/items/*/price"  // Price of all items
+```
+
+## Server-Sent Events (SSE) Support
+
+```typescript
+import { parseSSEStream, createSSEStreamingParser } from "incremental-json-parser";
+
+// Parse SSE stream
+const response = await fetch("/api/events");
+for await (const message of parseSSEStream(response.body!.getReader())) {
+  console.log("Event:", message.event, "Data:", message.data);
+}
+
+// Parse JSON data from SSE
+const parser = createSSEStreamingParser(response.body!.getReader());
+for await (const data of parser.watch("/items/*")) {
+  console.log("Item:", data);
+}
+```
+
+## Examples
+
+### Processing Large JSON Arrays
+
+```typescript
+import { StreamingJsonParser } from "incremental-json-parser";
+
+const response = await fetch("/api/large-dataset");
+const parser = new StreamingJsonParser(response.body!.getReader());
+
+// Process items one by one without loading entire response
+for await (const item of parser.watch("/data/*")) {
+  if (item.status === "error") {
+    console.log("Error item:", item.id);
   }
 }
 ```
+
+### Real-time Data Processing
+
+```typescript
+import { StreamingJsonParser } from "incremental-json-parser";
+
+const response = await fetch("/api/live-feed");
+const parser = new StreamingJsonParser(response.body!.getReader());
+
+// Process events as they arrive
+for await (const event of parser.watch("/events/*")) {
+  switch (event.type) {
+    case "user_action":
+      handleUserAction(event);
+      break;
+    case "system_alert":
+      handleAlert(event);
+      break;
+  }
+}
+```
+
+## TypeScript Support
+
+```typescript
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+interface ApiResponse {
+  users: User[];
+  total: number;
+}
+
+const parser = new StreamingJsonParser<ApiResponse>(reader);
+
+// Type-safe iteration
+for await (const user of parser.watch("/users/*")) {
+  // user is typed as User
+  console.log(user.name, user.email);
+}
+```
+
+## Demo Examples
+
+Run interactive demos:
+
+```bash
+npx tsx demo/cli.ts
+```
+
+Available demos:
+- Basic incremental parsing
+- JSON Pointer usage
+- OpenAI-style streaming
+- Nested data extraction
+- Performance testing
+- Unicode support
+- SSE stream processing
 
 ## Development
 
-Install dependencies and run tests:
-
 ```bash
+# Install dependencies
 npm install
+
+# Run tests
 npm test
-```
 
-Build the library:
-
-```bash
+# Build
 npm run build
+
+# Run demos
+npx tsx demo/cli.ts
 ```
 
-The parser reads from an object implementing the same interface as
-`ReadableStreamDefaultReader` and yields each time the root object is updated.
+## License
+
+UNLICENSED
