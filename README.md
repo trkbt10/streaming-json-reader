@@ -1,11 +1,11 @@
-# Incremental JSON Parser
+# Streaming JSON Reader
 
 A streaming JSON parser that lets you process large JSON responses without waiting for completion. Parse data as it arrives and extract specific values using JSON Pointers.
 
 ## Installation
 
 ```bash
-npm install github:trkbt10/incremental-json-parser
+npm install streaming-json-reader
 ```
 
 ## Usage
@@ -13,7 +13,7 @@ npm install github:trkbt10/incremental-json-parser
 ### Basic Incremental Parsing
 
 ```typescript
-import { incrementalJsonParser } from "incremental-json-parser";
+import { incrementalJsonParser } from "streaming-json-reader";
 
 // Parse JSON data as it arrives
 const response = await fetch("https://api.example.com/data");
@@ -27,7 +27,7 @@ for await (const partialData of incrementalJsonParser(reader)) {
 ### Streaming with JSON Pointers
 
 ```typescript
-import { StreamingJsonParser } from "incremental-json-parser";
+import { StreamingJsonParser } from "streaming-json-reader";
 
 const response = await fetch("https://api.example.com/users");
 const reader = response.body!.getReader();
@@ -124,7 +124,7 @@ Supports RFC 6901 JSON Pointer syntax:
 ## Server-Sent Events (SSE) Support
 
 ```typescript
-import { parseSSEStream, createSSEStreamingParser } from "incremental-json-parser";
+import { parseSSEStream, createSSEStreamingParser } from "streaming-json-reader";
 
 // Parse SSE stream
 const response = await fetch("/api/events");
@@ -144,7 +144,7 @@ for await (const data of parser.watch("/items/*")) {
 ### Processing Large JSON Arrays
 
 ```typescript
-import { StreamingJsonParser } from "incremental-json-parser";
+import { StreamingJsonParser } from "streaming-json-reader";
 
 const response = await fetch("/api/large-dataset");
 const parser = new StreamingJsonParser(response.body!.getReader());
@@ -160,7 +160,7 @@ for await (const item of parser.watch("/data/*")) {
 ### Real-time Data Processing
 
 ```typescript
-import { StreamingJsonParser } from "incremental-json-parser";
+import { StreamingJsonParser } from "streaming-json-reader";
 
 const response = await fetch("/api/live-feed");
 const parser = new StreamingJsonParser(response.body!.getReader());

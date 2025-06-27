@@ -5,7 +5,7 @@ export default defineConfig({
   build: {
     lib: {
       entry: path.resolve(__dirname, "src/index.ts"),
-      name: "IncrementalJsonParser",
+      name: "StreamingJsonReader",
       formats: ["es", "cjs"],
       fileName: (format) =>
         `[name].${
