@@ -69,17 +69,20 @@ for await (const user of parser.watchComplete("/users/*")) {
 ### SSE JSON Streaming (OpenAI, Anthropic, etc.)
 
 ```typescript
-import { createSSEJsonStreamingParser, SSEJsonExtractors } from "streaming-json-reader";
+import {
+  createSSEJsonStreamingParser,
+  SSEJsonExtractors,
+} from "streaming-json-reader";
 
 // OpenAI ChatCompletions streaming
 const response = await fetch("https://api.openai.com/v1/chat/completions", {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: "gpt-4",
+    model: "gpt-4.1-nano",
     messages: [{ role: "user", content: "Tell me a story" }],
     stream: true,
     response_format: {
@@ -90,14 +93,17 @@ const response = await fetch("https://api.openai.com/v1/chat/completions", {
           type: "object",
           properties: { story: { type: "string" } },
           required: ["story"],
-          additionalProperties: false
-        }
-      }
-    }
+          additionalProperties: false,
+        },
+      },
+    },
   }),
 });
 
-const parser = createSSEJsonStreamingParser(response.body!, SSEJsonExtractors.openAIChatCompletions);
+const parser = createSSEJsonStreamingParser(
+  response.body!,
+  SSEJsonExtractors.openAIChatCompletions
+);
 
 // Watch for complete story as it's assembled from fragments
 for await (const story of parser.watchComplete("/story")) {
@@ -114,6 +120,7 @@ for await (const story of parser.watchComplete("/story")) {
 Core function that yields partial JSON objects as they are parsed.
 
 **Parameters:**
+
 - `reader: ReadableStreamDefaultReader<string | Uint8Array>` - Stream reader
 
 **Returns:** `AsyncGenerator<DeepPartial<T>, void, unknown>`
@@ -123,6 +130,7 @@ Core function that yields partial JSON objects as they are parsed.
 Class for advanced streaming with JSON Pointer support.
 
 **Constructor:**
+
 ```typescript
 new StreamingJsonParser<T>(reader: ReadableStreamDefaultReader<string | Uint8Array>)
 ```
@@ -130,6 +138,7 @@ new StreamingJsonParser<T>(reader: ReadableStreamDefaultReader<string | Uint8Arr
 **Methods:**
 
 #### `watch(pointer: string, options?)`
+
 Monitor a JSON Pointer path and yield values as they become available (immediate completion).
 
 ```typescript
@@ -145,6 +154,7 @@ for await (const name of parser.watch("/users/*/name")) {
 ```
 
 #### `watchComplete(pointer: string)`
+
 Monitor a JSON Pointer path and yield values only when structurally complete.
 
 ```typescript
@@ -155,12 +165,15 @@ for await (const item of parser.watchComplete("/items/*")) {
 ```
 
 #### `observe(pointer: string, options?)`
+
 Alias for `watch()`. Same functionality.
 
 #### `select(pointer: string, options?)`
+
 Alias for `watch()`. Same functionality.
 
 #### `readPartial()`
+
 Get all incremental updates as they arrive.
 
 ```typescript
@@ -170,6 +183,7 @@ for await (const partial of parser.readPartial()) {
 ```
 
 #### `getFullResponse()`
+
 Get the complete response after streaming finishes.
 
 ```typescript
@@ -177,19 +191,111 @@ const fullData = await parser.getFullResponse();
 ```
 
 #### `getCurrentSnapshot()`
+
 Get the current partial state.
 
 ```typescript
 const current = parser.getCurrentSnapshot();
 ```
 
+### Object Stream Adapters
+
+For parsed object streams (e.g., OpenAI client responses):
+
+#### `createObjectStreamingParser(objectStream, options)`
+
+Creates a StreamingJsonParser from an async iterable of parsed objects.
+
+**Parameters:**
+
+- `objectStream: AsyncIterable<T>` - Stream of parsed objects
+- `options: ObjectStreamExtractorOptions<T>` - Extraction configuration
+
+**Returns:** `StreamingJsonParser`
+
+```typescript
+import OpenAI from "openai";
+import {
+  createObjectStreamingParser,
+  ObjectStreamExtractors,
+} from "streaming-json-reader";
+
+const client = new OpenAI();
+const response = await client.chat.completions.create({
+  model: "gpt-4.1-nano",
+  messages: [{ role: "user", content: "Tell me a story" }],
+  stream: true,
+  response_format: {
+    type: "json_schema",
+    json_schema: {
+      name: "story_response",
+      schema: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string" },
+                emotion: { type: "string", enum: ["happy", "sad", "neutral"] },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+// Use the object stream adapter for OpenAI's parsed response
+const parser = createObjectStreamingParser(
+  response,
+  ObjectStreamExtractors.openAIChatCompletions
+);
+
+// Watch for story items as they complete
+for await (const item of parser.watch("/items/*")) {
+  console.log("Story item:", item);
+}
+```
+
+#### `ObjectStreamExtractors`
+
+Pre-built extractors for common object stream APIs:
+
+```typescript
+// OpenAI ChatCompletions
+ObjectStreamExtractors.openAIChatCompletions;
+
+// Anthropic Claude (example)
+ObjectStreamExtractors.anthropicClaude;
+
+// Generic format
+ObjectStreamExtractors.generic;
+```
+
+#### `ObjectStreamExtractorOptions<T>`
+
+Configuration interface for object stream content extraction:
+
+```typescript
+interface ObjectStreamExtractorOptions<T> {
+  extractContent: (chunk: T) => string | null;
+  shouldEnd?: (chunk: T) => boolean;
+}
+```
+
 ### SSE JSON Streaming
+
+For raw Server-Sent Events streams:
 
 #### `createSSEJsonStreamingParser(sseStream, options)`
 
 Creates a StreamingJsonParser from an SSE stream with configurable JSON content extraction.
 
 **Parameters:**
+
 - `sseStream: ReadableStream<Uint8Array>` - SSE stream
 - `options: SSEJsonExtractorOptions` - Extraction configuration
 
@@ -199,28 +305,28 @@ Creates a StreamingJsonParser from an SSE stream with configurable JSON content 
 // Custom extractor
 const parser = createSSEJsonStreamingParser(stream, {
   extractContent: (chunk) => chunk.data?.content || null,
-  shouldEnd: (chunk) => chunk.type === 'done'
+  shouldEnd: (chunk) => chunk.type === "done",
 });
 ```
 
 #### `SSEJsonExtractors`
 
-Pre-built extractors for common APIs:
+Pre-built extractors for common SSE APIs:
 
 ```typescript
 // OpenAI ChatCompletions
-SSEJsonExtractors.openAIChatCompletions
+SSEJsonExtractors.openAIChatCompletions;
 
 // Anthropic Claude (example)
-SSEJsonExtractors.anthropicClaude
+SSEJsonExtractors.anthropicClaude;
 
 // Generic format
-SSEJsonExtractors.generic
+SSEJsonExtractors.generic;
 ```
 
 #### `SSEJsonExtractorOptions`
 
-Configuration interface for content extraction:
+Configuration interface for SSE content extraction:
 
 ```typescript
 interface SSEJsonExtractorOptions {
@@ -234,12 +340,12 @@ interface SSEJsonExtractorOptions {
 Supports RFC 6901 JSON Pointer syntax:
 
 ```typescript
-""           // Root object
-"/users"     // Property 'users'
-"/users/0"   // First element in users array
-"/users/*"   // All elements in users array (wildcard)
-"/users/*/name"  // Name property of all users
-"/data/items/*/price"  // Price of all items
+(""); // Root object
+("/users"); // Property 'users'
+("/users/0"); // First element in users array
+("/users/*"); // All elements in users array (wildcard)
+("/users/*/name"); // Name property of all users
+("/data/items/*/price"); // Price of all items
 ```
 
 ## Examples
@@ -281,19 +387,91 @@ for await (const event of parser.watch("/events/*")) {
 }
 ```
 
-### OpenAI Streaming with JSON Schema
+### OpenAI Client Integration (Recommended)
 
 ```typescript
-import { createSSEJsonStreamingParser, SSEJsonExtractors } from "streaming-json-reader";
+import OpenAI from "openai";
+import {
+  createObjectStreamingParser,
+  ObjectStreamExtractors,
+} from "streaming-json-reader";
+
+// Define your response type for type safety
+interface StoryItem {
+  text: string;
+  emotion: "happy" | "sad" | "angry" | "surprised" | "neutral";
+}
+
+interface StoryResponse {
+  items: StoryItem[];
+}
+
+const client = new OpenAI();
+const response = await client.chat.completions.create({
+  model: "gpt-4.1-nano",
+  messages: [{ role: "user", content: "Write a short story about a robot" }],
+  stream: true,
+  response_format: {
+    type: "json_schema",
+    json_schema: {
+      name: "story_response",
+      schema: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string" },
+                emotion: {
+                  type: "string",
+                  enum: ["happy", "sad", "angry", "surprised", "neutral"],
+                },
+              },
+              required: ["text", "emotion"],
+            },
+          },
+        },
+        required: ["items"],
+      },
+    },
+  },
+});
+
+// Use the object stream adapter for direct OpenAI client integration
+const parser = createObjectStreamingParser<StoryResponse>(
+  response,
+  ObjectStreamExtractors.openAIChatCompletions
+);
+
+// Watch story items as they arrive (real-time)
+for await (const item of parser.watch("/items/*")) {
+  console.log("Story item:", item.text, `(${item.emotion})`);
+}
+
+// Or wait for complete items only
+for await (const item of parser.watchComplete("/items/*")) {
+  console.log("Complete story item:", item);
+}
+```
+
+### OpenAI Streaming with Raw HTTP (Alternative)
+
+```typescript
+import {
+  createSSEJsonStreamingParser,
+  SSEJsonExtractors,
+} from "streaming-json-reader";
 
 const response = await fetch("https://api.openai.com/v1/chat/completions", {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: "gpt-4",
+    model: "gpt-4.1-nano",
     messages: [{ role: "user", content: "Write a short story" }],
     stream: true,
     response_format: {
@@ -305,17 +483,20 @@ const response = await fetch("https://api.openai.com/v1/chat/completions", {
           properties: {
             title: { type: "string" },
             content: { type: "string" },
-            genre: { type: "string" }
+            genre: { type: "string" },
           },
           required: ["title", "content", "genre"],
-          additionalProperties: false
-        }
-      }
-    }
+          additionalProperties: false,
+        },
+      },
+    },
   }),
 });
 
-const parser = createSSEJsonStreamingParser(response.body!, SSEJsonExtractors.openAIChatCompletions);
+const parser = createSSEJsonStreamingParser(
+  response.body!,
+  SSEJsonExtractors.openAIChatCompletions
+);
 
 // Watch specific fields as they complete
 for await (const title of parser.watchComplete("/title")) {
@@ -343,7 +524,7 @@ const customExtractor = {
   },
   shouldEnd: (chunk) => {
     return chunk.event === "complete";
-  }
+  },
 };
 
 const parser = createSSEJsonStreamingParser(response.body!, customExtractor);
@@ -366,7 +547,7 @@ const reader = jsonStream.getReader();
 while (true) {
   const { done, value } = await reader.read();
   if (done) break;
-  
+
   const data = JSON.parse(value);
   console.log("Parsed data:", data);
 }
@@ -378,7 +559,7 @@ const messageReader = messageStream.getReader();
 while (true) {
   const { done, value } = await messageReader.read();
   if (done) break;
-  
+
   console.log("Event:", value.event, "Data:", value.data, "ID:", value.id);
 }
 ```
@@ -419,9 +600,11 @@ npx tsx demo/cli.ts
 ```
 
 Available demos:
+
 - Basic incremental parsing
-- JSON Pointer usage  
+- JSON Pointer usage
 - OpenAI streaming with JSON schema
+- OpenAI client integration (no external API key required)
 - Custom SSE format handling
 - Nested data extraction
 - Performance examples
@@ -436,7 +619,7 @@ npm install
 # Run tests
 npm test
 
-# Run tests in watch mode  
+# Run tests in watch mode
 npm run test:watch
 
 # Build
@@ -449,7 +632,7 @@ npm run type-check
 npx tsx demo/cli.ts
 
 # Run specific demo
-npx tsx demo/openai-request.ts  # (requires .env with OPENAI_API_KEY)
+npx tsx src/streaming-parser-adapters-openai.spec.ts  # OpenAI adapter tests (no API key required)
 ```
 
 ## License
