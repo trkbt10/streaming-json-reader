@@ -23,6 +23,8 @@
   "scripts": {
     "build": "vite build",
     "demo": "bun run ./demo/cli.ts",
+    "demo:openai:chat-completions": "bun run ./demo/openai/chat-completions.ts",
+    "demo:openai:responses": "bun run ./demo/openai/responses.ts",
     "test": "vitest --run"
   },
   "devDependencies": {
