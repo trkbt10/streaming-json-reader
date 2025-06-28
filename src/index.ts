@@ -14,9 +14,12 @@ export {
   type SSEMessage,
 } from "./utils/sse";
 
-// SSE JSON stream parser with configurable content extraction
+// Streaming parser adapters for SSE and object streams
 export {
   createSSEJsonStreamingParser,
+  createObjectStreamingParser,
   SSEJsonExtractors,
+  ObjectStreamExtractors,
   type SSEJsonExtractorOptions,
-} from "./streaming-sse-json-parser";
+  type ObjectStreamExtractorOptions,
+} from "./streaming-parser-adapters";
