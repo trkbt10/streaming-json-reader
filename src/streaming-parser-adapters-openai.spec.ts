@@ -1,3 +1,4 @@
+import { describe, it, expect } from "vitest";
 import { createObjectStreamingParser, ObjectStreamExtractors } from "./index";
 import type { ChatCompletionChunk } from "openai/resources/index.mjs";
 
@@ -21,7 +22,7 @@ function createMockOpenAIStream(): AsyncIterable<ChatCompletionChunk> {
     '{"text": "discovering the colorful world around him.", "emotion": "happy"},',
     '{"text": "Bolt took his first wobbly steps,", "emotion": "neutral"},',
     '{"text": "and felt pure joy in his circuits.", "emotion": "happy"}',
-    ']}'
+    "]}",
   ];
 
   return {
@@ -32,29 +33,33 @@ function createMockOpenAIStream(): AsyncIterable<ChatCompletionChunk> {
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{
-            index: 0,
-            delta: { content: part },
-            finish_reason: null
-          }]
+          choices: [
+            {
+              index: 0,
+              delta: { content: part },
+              finish_reason: null,
+            },
+          ],
         } as ChatCompletionChunk;
         // Simulate streaming delay
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      
+
       // Final chunk with finish_reason
       yield {
         id: "chatcmpl-mock",
-        object: "chat.completion.chunk", 
+        object: "chat.completion.chunk",
         created: Date.now(),
         model: "gpt-4",
-        choices: [{
-          index: 0,
-          delta: {},
-          finish_reason: "stop"
-        }]
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: "stop",
+          },
+        ],
       } as ChatCompletionChunk;
-    }
+    },
   };
 }
 describe("OpenAI Streaming Parser Adapter", () => {
@@ -106,41 +111,55 @@ describe("OpenAI Streaming Parser Adapter", () => {
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{ index: 0, delta: { content: '{"items": [' }, finish_reason: null }]
+          choices: [
+            {
+              index: 0,
+              delta: { content: '{"items": [' },
+              finish_reason: null,
+            },
+          ],
         } as ChatCompletionChunk;
-        
+
         yield {
           id: "chatcmpl-mock",
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{ index: 0, delta: {}, finish_reason: null }] // Empty content
+          choices: [{ index: 0, delta: {}, finish_reason: null }], // Empty content
         } as ChatCompletionChunk;
-        
+
         yield {
           id: "chatcmpl-mock",
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{ index: 0, delta: { content: '{"text": "Hello", "emotion": "happy"}' }, finish_reason: null }]
+          choices: [
+            {
+              index: 0,
+              delta: { content: '{"text": "Hello", "emotion": "happy"}' },
+              finish_reason: null,
+            },
+          ],
         } as ChatCompletionChunk;
-        
+
         yield {
           id: "chatcmpl-mock",
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{ index: 0, delta: { content: ']}' }, finish_reason: null }]
+          choices: [
+            { index: 0, delta: { content: "]}" }, finish_reason: null },
+          ],
         } as ChatCompletionChunk;
-        
+
         yield {
           id: "chatcmpl-mock",
           object: "chat.completion.chunk",
           created: Date.now(),
           model: "gpt-4",
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
         } as ChatCompletionChunk;
-      }
+      },
     };
 
     const parser = createObjectStreamingParser(
@@ -162,7 +181,7 @@ describe("OpenAI Streaming Parser Adapter", () => {
 // Manual test runner (can be replaced with proper test framework)
 async function runTests() {
   console.log("Running OpenAI streaming parser tests...\n");
-  
+
   try {
     // Test 1: Watch method
     console.log("=== Test 1: Watch method ===");
