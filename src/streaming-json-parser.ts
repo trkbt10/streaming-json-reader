@@ -5,6 +5,69 @@ import { decodeStreamChunk, createStreamDecoder } from './utils/text-decoder';
 import { normalizeError } from './utils/error-utils';
 
 /**
+ * Represents a JSON node in the streaming parser with navigation capabilities
+ */
+export class StreamingJsonNode<T = any> {
+  public readonly path: string;
+  public readonly type: 'object' | 'array' | 'primitive' | 'unknown';
+  
+  private parser: StreamingJsonParser<T>;
+  private valuePath: string;
+  
+  constructor(parser: StreamingJsonParser<T>, path: string, type: 'object' | 'array' | 'primitive' | 'unknown' = 'unknown') {
+    this.parser = parser;
+    this.path = path;
+    this.type = type;
+    this.valuePath = path;
+  }
+  
+  /**
+   * AsyncIterator implementation - yields values as they stream
+   */
+  async *[Symbol.asyncIterator](): AsyncIterator<{value: any, done: boolean}> {
+    // For primitive values, yield once with done=true
+    if (this.type === 'primitive') {
+      const value = await this.getValue();
+      yield { value, done: true };
+      return;
+    }
+    
+    // For objects/arrays, watch for completion
+    const fullValue = await this.getValue();
+    yield { value: fullValue, done: true };
+  }
+  
+  /**
+   * Select child nodes matching the pointer
+   */
+  async *select(pointer: string): AsyncGenerator<StreamingJsonNode<T>> {
+    // Combine current path with the new pointer
+    const combinedPath = this.path + pointer;
+    
+    for await (const node of this.parser.select(combinedPath)) {
+      yield node;
+    }
+  }
+  
+  /**
+   * Get the complete value at this node
+   */
+  async getValue(): Promise<any> {
+    const fullResponse = await this.parser.getFullResponse();
+    
+    if (this.path === '') {
+      return fullResponse;
+    }
+    
+    // Extract value at the path
+    const pointerParser = new JSONPointerParser<T>(this.path);
+    const values = pointerParser.extractValues(fullResponse as DeepPartial<T>);
+    
+    return values.length > 0 ? values[0] : undefined;
+  }
+}
+
+/**
  * A utility class for reading and parsing JSON streams with support for JSON Pointers.
  * Provides convenient methods for watching specific paths and getting full responses.
  */
@@ -133,10 +196,50 @@ export class StreamingJsonParser<T = any> {
   }
 
   /**
-   * Alias for watch() method - selects values from a specific path
+   * Selects JSON nodes matching the given pointer path
+   * Returns StreamingJsonNode objects that can be further navigated or iterated
+   * 
+   * @param pointer - JSON Pointer string (e.g., "/items/*" or "/data/0/name")
+   * @yields StreamingJsonNode objects for matching paths
    */
-  select(pointer: string, options?: JSONPointerOptions): AsyncGenerator<any, void, unknown> {
-    return this.watch(pointer, options);
+  async *select(pointer: string): AsyncGenerator<StreamingJsonNode<T>> {
+    // Special case for empty pointer (root)
+    if (pointer === '') {
+      const fullResponse = await this.getFullResponse();
+      const type = this.determineNodeType(fullResponse, '');
+      yield new StreamingJsonNode<T>(this, '', type);
+      return;
+    }
+    
+    // For wildcard paths, we need to enumerate all matching paths
+    const fullResponse = await this.getFullResponse();
+    const paths = this.extractMatchingPaths(fullResponse, pointer);
+    
+    // Yield a node for each matching path
+    for (const path of paths) {
+      const type = this.determineNodeType(fullResponse, path);
+      yield new StreamingJsonNode<T>(this, path, type);
+    }
+  }
+  
+  /**
+   * Returns the first node matching the given pointer path
+   * 
+   * @param pointer - JSON Pointer string
+   * @returns First matching StreamingJsonNode or null
+   */
+  async querySelector(pointer: string): Promise<StreamingJsonNode<T> | null> {
+    for await (const node of this.select(pointer)) {
+      return node;
+    }
+    return null;
+  }
+  
+  /**
+   * Alias for select() - returns all nodes matching the pointer
+   */
+  querySelectorAll(pointer: string): AsyncGenerator<StreamingJsonNode<T>> {
+    return this.select(pointer);
   }
 
   /**
@@ -297,5 +400,89 @@ export class StreamingJsonParser<T = any> {
     // For the initial implementation, we'll return the original reader
     // This means only one consumer can be active at a time
     return this.reader;
+  }
+  
+  /**
+   * Extracts all paths matching the given pointer pattern
+   */
+  private extractMatchingPaths(data: any, pointer: string): string[] {
+    const paths: string[] = [];
+    const segments = pointer.split('/').filter(s => s !== '');
+    
+    const traverse = (current: any, currentPath: string[], pointerIndex: number) => {
+      if (pointerIndex >= segments.length) {
+        // We've matched all segments
+        paths.push('/' + currentPath.join('/'));
+        return;
+      }
+      
+      const segment = segments[pointerIndex];
+      
+      if (segment === '*') {
+        // Wildcard - match all array elements or object keys
+        if (Array.isArray(current)) {
+          for (let i = 0; i < current.length; i++) {
+            traverse(current[i], [...currentPath, i.toString()], pointerIndex + 1);
+          }
+        } else if (current && typeof current === 'object') {
+          for (const key of Object.keys(current)) {
+            traverse(current[key], [...currentPath, key], pointerIndex + 1);
+          }
+        }
+      } else {
+        // Exact match
+        if (Array.isArray(current)) {
+          const index = parseInt(segment, 10);
+          if (!isNaN(index) && index >= 0 && index < current.length) {
+            traverse(current[index], [...currentPath, segment], pointerIndex + 1);
+          }
+        } else if (current && typeof current === 'object' && segment in current) {
+          traverse(current[segment], [...currentPath, segment], pointerIndex + 1);
+        }
+      }
+    };
+    
+    traverse(data, [], 0);
+    return paths;
+  }
+  
+  /**
+   * Determines the type of a node at the given path
+   */
+  private determineNodeType(data: any, path: string): 'object' | 'array' | 'primitive' | 'unknown' {
+    if (path === '') {
+      // Root path
+      if (Array.isArray(data)) return 'array';
+      if (data && typeof data === 'object') return 'object';
+      return 'primitive';
+    }
+    
+    // Navigate to the value at the path
+    const segments = path.split('/').filter(s => s !== '');
+    let current = data;
+    
+    for (const segment of segments) {
+      if (!current || typeof current !== 'object') {
+        return 'unknown';
+      }
+      
+      if (Array.isArray(current)) {
+        const index = parseInt(segment, 10);
+        if (isNaN(index) || index < 0 || index >= current.length) {
+          return 'unknown';
+        }
+        current = current[index];
+      } else {
+        if (!(segment in current)) {
+          return 'unknown';
+        }
+        current = current[segment];
+      }
+    }
+    
+    // Determine type of the final value
+    if (Array.isArray(current)) return 'array';
+    if (current && typeof current === 'object') return 'object';
+    return 'primitive';
   }
 }
